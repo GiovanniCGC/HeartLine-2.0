@@ -47914,6 +47914,10 @@
               maximumGripAcceleration: 64,
               spinRadiansPerLaunchMeterPerSecond: 2.15,
               pendulumSpinMomentumGain: 0.75,
+              releaseVelocityTransfer: 1,
+              pendulumWhipTransfer: 0.12,
+              releaseSpinTransfer: 1,
+              gripOffsetSpinGain: 0.16,
               minimumReleaseSpin: 5.8,
               maximumReleaseSpin: 18,
               predictionRadius: 0.22,
@@ -52428,7 +52432,7 @@
                   .addScaledVector(this.aimWorldUp, B)
                   .addScaledVector(this.aimForward, Q);
                 let E = this.measureThrowVelocity(),
-                  o = Math.hypot(Math.max(0, E.x), Math.max(0, E.y)),
+                  o = Math.hypot(E.x, E.y),
                   e = ys(
                     (o - this.aimConfig.minimumReleasePlaneSpeed) /
                       (this.aimConfig.maximumReleasePlaneSpeed -
@@ -52566,73 +52570,118 @@
                   ? I * I * (3 - 2 * I)
                   : I;
               }
-              calculateLaunchSolution(A) {
+              /*! Release is a rigid-body hand-off, not a re-aimed shot: the
+            bottle keeps the hand velocity measured at the moment the finger
+            lifts, plus the whip of the grip-to-centre-of-mass lever arm, plus
+            the angular rate it was already swinging at. Direction, elevation
+            and spin therefore all come out of the gesture itself. */ calculateLaunchSolution(
+                A,
+              ) {
                 if (
                   !this.bottleBody ||
                   !this.targetPlatform ||
                   !A?.valid ||
-                  A.power <= 0
+                  !Number.isFinite(A.forwardSpeed) ||
+                  !Number.isFinite(A.upwardSpeed)
                 )
                   return null;
-                let I = ys(A.power, 0, 1),
-                  g = this.applyAimPowerCurve(I),
-                  C = 0,
-                  Q = this.aimForward.clone().normalize(),
-                  i =
-                    this.aimConfig.minimumRange +
-                    (this.aimConfig.maximumRange -
-                      this.aimConfig.minimumRange) *
-                      g,
-                  E = (this.aimConfig.launchElevationDegrees * Math.PI) / 180,
-                  o = ys(
-                    this.solveLaunchSpeed(
-                      i,
-                      Q,
-                      E,
-                      this.aimTargetHeightDelta,
+                let I = this.aimConfig,
+                  g = this.aimForward
+                    .clone()
+                    .multiplyScalar(A.forwardSpeed * I.releaseVelocityTransfer)
+                    .addScaledVector(
+                      this.aimWorldUp,
+                      A.upwardSpeed * I.releaseVelocityTransfer,
                     ),
-                    0,
-                    this.aimConfig.maximumLaunchSpeed,
+                  Q = this.heldCenterOfMass().clone().sub(this.heldGripAnchor),
+                  // The throw is delivered through the grip, which sits well
+                  // off the centre of mass, so the impulse necessarily torques
+                  // the bottle: dOmega = (grip - com) x v / k^2, with k^2 the
+                  // transverse radius of gyration read from the real inertia.
+                  c = this.bottleBody.principalInertia(),
+                  u = this.bottleBody.mass(),
+                  d =
+                    u > 1e-6
+                      ? Math.max(0.01, Math.max(c.x, c.y, c.z) / u)
+                      : 0.2,
+                  w =
+                    (Q.clone().negate().cross(g).dot(this.aimRight) *
+                      I.gripOffsetSpinGain) /
+                    d,
+                  // Angular velocity is continuous through the release: the
+                  // bottle keeps the rate it was already swinging at about the
+                  // grip, and only that swing whips the centre of mass. The
+                  // finger torque above is a couple, so it adds spin without
+                  // adding any linear speed.
+                  n = ys(
+                    this.heldPendulumPitchVelocity * I.releaseSpinTransfer,
+                    -I.maximumReleaseSpin,
+                    I.maximumReleaseSpin,
                   ),
-                  e = o * Math.cos(E),
-                  t = o * Math.sin(E),
-                  a = Q.clone()
-                    .multiplyScalar(e)
-                    .addScaledVector(this.aimWorldUp, t),
+                  C = ys(n + w, -I.maximumReleaseSpin, I.maximumReleaseSpin),
+                  B = this.aimRight.clone().multiplyScalar(C),
+                  i = this.aimRight
+                    .clone()
+                    .multiplyScalar(n)
+                    .cross(Q)
+                    .multiplyScalar(I.pendulumWhipTransfer),
+                  E = g.add(i),
+                  o = E.length();
+                if (!(o > 1e-4)) return null;
+                o > I.maximumLaunchSpeed &&
+                  (E.multiplyScalar(I.maximumLaunchSpeed / o),
+                  (o = I.maximumLaunchSpeed));
+                let e = ys(o / I.maximumLaunchSpeed, 0, 1),
+                  t = E.clone().addScaledVector(
+                    this.aimWorldUp,
+                    -E.dot(this.aimWorldUp),
+                  ),
+                  a =
+                    t.lengthSq() > 1e-8
+                      ? t.normalize()
+                      : this.aimForward.clone(),
                   s = ys(
                     -this.heldPendulumPitchVelocity /
-                      this.aimConfig.maximumPendulumAngularSpeed,
+                      I.maximumPendulumAngularSpeed,
                     -1,
                     1,
                   ),
-                  // The bottle lags a forward cap-whip, so negative pitch velocity
-                  // is the intuitive boost; a late counter-swing removes spin.
-                  D = ys(
-                    o *
-                      this.aimConfig.spinRadiansPerLaunchMeterPerSecond +
-                      -this.heldPendulumPitchVelocity *
-                        this.aimConfig.pendulumSpinMomentumGain,
-                    this.aimConfig.minimumReleaseSpin,
-                    this.aimConfig.maximumReleaseSpin,
+                  D = Math.max(
+                    0.001,
+                    Math.hypot(
+                      this.world?.gravity?.x ?? 0,
+                      this.world?.gravity?.y ?? -9.81,
+                      this.world?.gravity?.z ?? 0,
+                    ),
                   ),
-                  n = Q.clone().cross(this.aimWorldUp).normalize(),
-                  r = n.multiplyScalar(D);
-                return Number.isFinite(a.x) &&
-                  Number.isFinite(a.y) &&
-                  Number.isFinite(a.z) &&
-                  Number.isFinite(r.x) &&
-                  Number.isFinite(r.y) &&
-                  Number.isFinite(r.z)
+                  f = E.dot(this.aimWorldUp),
+                  r = Math.sqrt(Math.max(0, o * o - f * f)),
+                  h =
+                    (f +
+                      Math.sqrt(
+                        Math.max(
+                          0,
+                          f * f - 2 * D * this.aimTargetHeightDelta,
+                        ),
+                      )) /
+                    D,
+                  l = r * Math.max(0, h);
+                return Number.isFinite(E.x) &&
+                  Number.isFinite(E.y) &&
+                  Number.isFinite(E.z) &&
+                  Number.isFinite(B.x) &&
+                  Number.isFinite(B.y) &&
+                  Number.isFinite(B.z)
                   ? {
-                      velocity: a,
-                      angularVelocity: r,
-                      spinSpeed: D,
-                      horizontalDirection: Q,
-                      desiredRange: i,
-                      rawPower: I,
-                      powerCurve: g,
+                      velocity: E,
+                      angularVelocity: B,
+                      spinSpeed: C,
+                      horizontalDirection: a,
+                      desiredRange: l,
+                      rawPower: e,
+                      powerCurve: this.applyAimPowerCurve(e),
                       swingMomentum: s,
-                      steer: C,
+                      steer: 0,
                       speed: o,
                       origin: this.aimOrigin.clone(),
                       releasePosition: this.heldBottleTarget.clone(),
