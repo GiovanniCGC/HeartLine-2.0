@@ -47877,7 +47877,7 @@
             })),
             (Ms = Object.freeze({
               debug: !1,
-              gestureMode: "cap-pendulum-throw",
+              gestureMode: "cap-pull-sling",
               deadZonePx: 22,
               maximumThrowPullPx: 210,
               maximumSidePullPx: 120,
@@ -47900,29 +47900,31 @@
               maximumReleasePlaneSpeed: 7.2,
               pickupInitialLift: 0.065,
               pickupSideWorldPerPx: 0,
-              pickupMaximumLift: 0.62,
-              pickupMaximumForward: 0.78,
+              pickupMaximumLift: 0.3,
+              pickupMaximumForward: 0.24,
               pickupMaximumSide: 0,
-              pickupMaximumBack: 0.52,
+              pickupMaximumBack: 0.2,
               pickupMaximumDown: 0.1,
               gripFollowRate: 38,
               pendulumLength: 0.82,
               pendulumDamping: 1.05,
               pendulumAccelerationResponse: 2.25,
-              maximumPendulumAngleDegrees: 76,
+              maximumPendulumAngleDegrees: 34,
               maximumPendulumAngularSpeed: 12.5,
               maximumGripAcceleration: 64,
               spinRadiansPerLaunchMeterPerSecond: 2.15,
               pendulumSpinMomentumGain: 0.75,
-              releaseVelocityTransfer: 1,
-              pendulumWhipTransfer: 0.12,
-              releaseSpinTransfer: 1,
-              gripOffsetSpinGain: 0.16,
-              swipeForwardBias: 0.85,
-              launchAssist: 0.96,
-              spinAssist: 0.95,
-              assistMinimumElevationDegrees: 34,
-              assistMaximumElevationDegrees: 62,
+              spinAssist: 0.92,
+              launchAssist: 0.6,
+              minimumPullWorld: 0.18,
+              maximumPullWorld: 1.15,
+              minimumUpwardShare: 0.2,
+              slingMinimumSpeed: 3.4,
+              slingMaximumSpeed: 8.4,
+              spinPerLaunchSpeed: 1.8,
+              previewFraction: 0.5,
+              previewFadeFraction: 0.55,
+              previewDurationSeconds: 1.2,
               minimumReleaseSpin: 5.8,
               maximumReleaseSpin: 18,
               predictionRadius: 0.22,
@@ -52411,69 +52413,64 @@
                   this.gestureMaximumPullPx,
                   Math.hypot(A.x - this.aimStart.x, A.y - this.aimStart.y),
                 );
-                let I = ys(
-                    this.gestureMaximumPullPx,
-                    0,
-                    this.aimConfig.maximumThrowPullPx,
-                  ),
-                  g = 0,
-                  C =
+                let cfg = this.aimConfig,
+                  px = ys(this.gestureMaximumPullPx, 0, cfg.maximumThrowPullPx),
+                  // Where the finger sits relative to where it grabbed, in the
+                  // forward/up aim plane: this is the draw of the sling.
+                  plane =
                     this.pointerGripPlaneOffset(A) ??
                     this.heldGripPlaneOffset
                       .copy(this.heldGripTarget)
                       .sub(this.heldGripOrigin),
-                  B = ys(
-                    C.dot(this.aimWorldUp),
-                    -this.aimConfig.pickupMaximumDown,
-                    this.aimConfig.pickupMaximumLift,
-                  ),
-                  Q = ys(
-                    C.dot(this.aimForward),
-                    -this.aimConfig.pickupMaximumBack,
-                    this.aimConfig.pickupMaximumForward,
-                  );
+                  pullU = plane.dot(this.aimWorldUp),
+                  pullF = plane.dot(this.aimForward);
+                // The bottle visibly draws back with the finger.
                 this.heldGripTarget
                   .copy(this.heldGripOrigin)
-                  .addScaledVector(this.aimWorldUp, B)
-                  .addScaledVector(this.aimForward, Q);
-                let E = this.measureThrowVelocity(),
-                  o = Math.hypot(E.x, E.y),
-                  e = ys(
-                    (o - this.aimConfig.minimumReleasePlaneSpeed) /
-                      (this.aimConfig.maximumReleasePlaneSpeed -
-                        this.aimConfig.minimumReleasePlaneSpeed),
+                  .addScaledVector(
+                    this.aimWorldUp,
+                    ys(pullU, -cfg.pickupMaximumDown, cfg.pickupMaximumLift),
+                  )
+                  .addScaledVector(
+                    this.aimForward,
+                    ys(pullF, -cfg.pickupMaximumBack, cfg.pickupMaximumForward),
+                  );
+                // Release fires opposite the draw.
+                let aimU = -pullU,
+                  aimF = -pullF,
+                  draw = Math.hypot(aimU, aimF),
+                  power = ys(
+                    (draw - cfg.minimumPullWorld) /
+                      Math.max(
+                        1e-4,
+                        cfg.maximumPullWorld - cfg.minimumPullWorld,
+                      ),
                     0,
                     1,
                   ),
-                  t = ys(
-                    (I - this.aimConfig.deadZonePx) /
-                      (this.aimConfig.maximumThrowPullPx -
-                        this.aimConfig.deadZonePx),
-                    0,
-                    1,
-                  ),
-                  a = ys(0.86 * e + 0.14 * t, 0, 1),
-                  n = 0,
-                  r =
-                    I >= this.aimConfig.deadZonePx &&
-                    o >=
-                      0.3 *
-                        this.aimConfig.minimumReleasePlaneSpeed,
+                  // Pulling down and back throws up and forward. Pulling the
+                  // other way is not a throw.
+                  valid =
+                    draw > cfg.minimumPullWorld &&
+                    aimU > cfg.minimumUpwardShare * draw,
                   h = {
-                    valid: r,
-                    throwPull: I,
-                    sidePull: g,
-                    power: a,
-                    steer: n,
-                    upwardSpeed: E.y,
-                    forwardSpeed: E.x,
-                    releaseSpeed: o,
+                    valid: valid,
+                    throwPull: px,
+                    sidePull: 0,
+                    power: power,
+                    steer: 0,
+                    aimU: aimU,
+                    aimF: aimF,
+                    drawLength: draw,
+                    upwardSpeed: aimU,
+                    forwardSpeed: aimF,
+                    releaseSpeed: draw,
                     lateralSpeed: 0,
                   };
                 return (
-                  (this.pullPower = a),
-                  (this.aimRawPower = a),
-                  (this.aimSteer = n),
+                  (this.pullPower = power),
+                  (this.aimRawPower = power),
+                  (this.aimSteer = 0),
                   (this.lastGestureValues = h),
                   (this.aimPreviewDirty = !0),
                   h
@@ -52575,78 +52572,35 @@
                   ? I * I * (3 - 2 * I)
                   : I;
               }
-              /*! Release is a rigid-body hand-off, not a re-aimed shot: the
-            bottle keeps the hand velocity measured at the moment the finger
-            lifts, plus the whip of the grip-to-centre-of-mass lever arm, plus
-            the angular rate it was already swinging at. Direction, elevation
-            and spin therefore all come out of the gesture itself. */ calculateLaunchSolution(
-                A,
-              ) {
+              /*! The sling: the draw sets the heading (mirrored) and the
+            speed together. Rotation follows the speed, so a flat fast arc
+            turns fewer times than a lofted one and the arc you pick is a real
+            choice, not just a distance. */ calculateLaunchSolution(A) {
                 if (
                   !this.bottleBody ||
                   !this.targetPlatform ||
                   !A?.valid ||
-                  !Number.isFinite(A.forwardSpeed) ||
-                  !Number.isFinite(A.upwardSpeed)
+                  !Number.isFinite(A.aimF) ||
+                  !Number.isFinite(A.aimU)
                 )
                   return null;
                 let cfg = this.aimConfig,
                   up = this.aimWorldUp,
-                  // A screen-up flick is an up-and-forward toss: part of the
-                  // vertical swipe carries the bottle toward the target.
-                  handF =
-                    (A.forwardSpeed +
-                      cfg.swipeForwardBias * Math.max(0, A.upwardSpeed)) *
-                    cfg.releaseVelocityTransfer,
-                  handU = A.upwardSpeed * cfg.releaseVelocityTransfer,
-                  hand = this.aimForward
+                  dir = this.aimForward
                     .clone()
-                    .multiplyScalar(handF)
-                    .addScaledVector(up, handU),
-                  lever = this.heldCenterOfMass()
-                    .clone()
-                    .sub(this.heldGripAnchor),
-                  inertia = this.bottleBody.principalInertia(),
-                  mass = this.bottleBody.mass(),
-                  gyr =
-                    mass > 1e-6
-                      ? Math.max(
-                          0.01,
-                          Math.max(inertia.x, inertia.y, inertia.z) / mass,
-                        )
-                      : 0.2,
-                  // The throw is delivered at the grip, a lever arm off the
-                  // centre of mass, so the impulse torques the bottle. Being a
-                  // couple it adds rotation without adding speed.
-                  couple =
-                    (lever.clone().negate().cross(hand).dot(this.aimRight) *
-                      cfg.gripOffsetSpinGain) /
-                    gyr,
-                  // Angular velocity is continuous through the release, and
-                  // only that swing whips the centre of mass.
-                  swing = ys(
-                    this.heldPendulumPitchVelocity * cfg.releaseSpinTransfer,
-                    -cfg.maximumReleaseSpin,
-                    cfg.maximumReleaseSpin,
+                    .multiplyScalar(A.aimF)
+                    .addScaledVector(up, A.aimU);
+                if (dir.lengthSq() < 1e-8) return null;
+                dir.normalize();
+                let curve = this.applyAimPowerCurve(ys(A.power, 0, 1)),
+                  speed = ys(
+                    cfg.slingMinimumSpeed +
+                      (cfg.slingMaximumSpeed - cfg.slingMinimumSpeed) * curve,
+                    0,
+                    cfg.maximumLaunchSpeed,
                   ),
-                  spin = ys(
-                    swing + couple,
-                    -cfg.maximumReleaseSpin,
-                    cfg.maximumReleaseSpin,
-                  ),
-                  vel = hand.add(
-                    this.aimRight
-                      .clone()
-                      .multiplyScalar(swing)
-                      .cross(lever)
-                      .multiplyScalar(cfg.pendulumWhipTransfer),
-                  ),
-                  speed = vel.length();
-                if (!(speed > 1e-4)) return null;
-                speed > cfg.maximumLaunchSpeed &&
-                  (vel.multiplyScalar(cfg.maximumLaunchSpeed / speed),
-                  (speed = cfg.maximumLaunchSpeed));
-                let grav = Math.max(
+                  vel = dir.clone().multiplyScalar(speed),
+                  grav = Math.max(
                     0.001,
                     Math.hypot(
                       this.world?.gravity?.x ?? 0,
@@ -52655,80 +52609,61 @@
                     ),
                   ),
                   drop = this.aimTargetHeightDelta,
-                  seat = this.targetPlatform.mesh.position,
-                  toTarget = new mI(
-                    seat.x - this.aimOrigin.x,
-                    seat.y - this.aimOrigin.y,
-                    seat.z - this.aimOrigin.z,
-                  ),
-                  flat = toTarget.clone().addScaledVector(up, -toTarget.dot(up)),
-                  reach = flat.length(),
-                  bearing =
-                    reach > 1e-4
-                      ? flat.clone().normalize()
-                      : this.aimForward.clone(),
-                  vUp = vel.dot(up),
-                  vFlat = Math.sqrt(Math.max(0, speed * speed - vUp * vUp)),
-                  heading =
-                    vFlat > 1e-4
-                      ? vel.clone().addScaledVector(up, -vUp).normalize()
-                      : bearing.clone(),
-                  pitch = Math.atan2(vUp, vFlat);
-                // Assist: bend the shot toward one that actually lands, while
-                // keeping the arc the player asked for.
-                if (cfg.launchAssist > 0 && reach > 1e-3) {
-                  let want = ys(
-                      pitch,
-                      (cfg.assistMinimumElevationDegrees * Math.PI) / 180,
-                      (cfg.assistMaximumElevationDegrees * Math.PI) / 180,
+                  vUp = vel.dot(up);
+                // Drawing the sling slides the bottle back, so the gap it has
+                // to cross grows while you aim. Absorb part of that drift in
+                // the speed only: the heading you picked stays yours. This has
+                // to settle before the spin, which is timed to the flight.
+                if (cfg.launchAssist > 0) {
+                  let seat = this.targetPlatform.mesh.position,
+                    rel = new mI(
+                      seat.x - this.aimOrigin.x,
+                      seat.y - this.aimOrigin.y,
+                      seat.z - this.aimOrigin.z,
                     ),
-                    cw = Math.cos(want),
-                    span = reach * Math.tan(want) - drop,
+                    reach = rel.clone().addScaledVector(up, -rel.dot(up)).length(),
+                    pitch = Math.atan2(
+                      vUp,
+                      Math.sqrt(Math.max(0, speed * speed - vUp * vUp)),
+                    ),
+                    cw = Math.cos(pitch),
+                    span = reach * Math.tan(pitch) - drop,
                     need =
-                      span > 1e-4
+                      reach > 1e-3 && span > 1e-4 && cw > 1e-3
                         ? Math.sqrt((grav * reach * reach) / (2 * cw * cw * span))
                         : speed;
                   (Number.isFinite(need) || (need = speed),
                     (need = ys(need, 0, cfg.maximumLaunchSpeed)),
                     (speed += (need - speed) * cfg.launchAssist),
-                    (pitch += (want - pitch) * cfg.launchAssist),
-                    heading.lerp(bearing, cfg.launchAssist),
-                    heading.lengthSq() < 1e-8 && heading.copy(bearing),
-                    heading.normalize(),
-                    vel
-                      .copy(heading)
-                      .multiplyScalar(speed * Math.cos(pitch))
-                      .addScaledVector(up, speed * Math.sin(pitch)),
-                    (speed = vel.length()),
+                    vel.copy(dir).multiplyScalar(speed),
                     (vUp = vel.dot(up)));
                 }
                 let flight =
-                  (vUp + Math.sqrt(Math.max(0, vUp * vUp - 2 * grav * drop))) /
-                  grav;
-                // Spin assist: settle the rotation on a whole number of turns so
-                // a throw that lands, lands upright.
+                    (vUp + Math.sqrt(Math.max(0, vUp * vUp - 2 * grav * drop))) /
+                    grav,
+                  spin = -cfg.spinPerLaunchSpeed * speed;
+                // Nudge the rotation toward a whole number of turns, but only
+                // part of the way: a badly judged arc still lands on its side.
                 if (cfg.spinAssist > 0 && flight > 0.08) {
-                  let sgn = spin > 0 ? 1 : -1,
-                    turns = ys(
+                  let turns = ys(
                       Math.round((Math.abs(spin) * flight) / (2 * Math.PI)),
                       1,
-                      2,
+                      3,
                     ),
-                    ideal = (sgn * (2 * Math.PI * turns)) / flight;
-                  spin = ys(
-                    spin + (ideal - spin) * cfg.spinAssist,
-                    -cfg.maximumReleaseSpin,
-                    cfg.maximumReleaseSpin,
-                  );
+                    // The bottle is already tilted by the draw, so a whole
+                    // number of turns would land it at that same tilt. Aim the
+                    // rotation at upright instead.
+                    ideal =
+                      (-2 * Math.PI * turns - this.heldPendulumPitch) / flight;
+                  spin += (ideal - spin) * cfg.spinAssist;
                 }
+                spin = ys(spin, -cfg.maximumReleaseSpin, cfg.maximumReleaseSpin);
                 let angular = this.aimRight.clone().multiplyScalar(spin),
-                  power = ys(speed / cfg.maximumLaunchSpeed, 0, 1),
-                  momentum = ys(
-                    -this.heldPendulumPitchVelocity /
-                      cfg.maximumPendulumAngularSpeed,
-                    -1,
-                    1,
-                  ),
+                  flatDir = dir.clone().addScaledVector(up, -dir.dot(up)),
+                  heading =
+                    flatDir.lengthSq() > 1e-8
+                      ? flatDir.normalize()
+                      : this.aimForward.clone(),
                   travel =
                     Math.sqrt(Math.max(0, speed * speed - vUp * vUp)) *
                     Math.max(0, flight);
@@ -52742,11 +52677,16 @@
                       velocity: vel,
                       angularVelocity: angular,
                       spinSpeed: spin,
-                      horizontalDirection: heading.clone(),
+                      horizontalDirection: heading,
                       desiredRange: travel,
-                      rawPower: power,
-                      powerCurve: this.applyAimPowerCurve(power),
-                      swingMomentum: momentum,
+                      rawPower: ys(A.power, 0, 1),
+                      powerCurve: curve,
+                      swingMomentum: ys(
+                        -this.heldPendulumPitchVelocity /
+                          cfg.maximumPendulumAngularSpeed,
+                        -1,
+                        1,
+                      ),
                       steer: 0,
                       speed: speed,
                       origin: this.aimOrigin.clone(),
@@ -52955,11 +52895,15 @@
                     }
                   : null;
               }
-              predictTrajectory(A) {
+              predictTrajectory(A, dur) {
                 let I = A.origin.clone(),
                   g = A.velocity.clone(),
                   C = this.aimConfig.predictionTimeStep,
-                  B = Math.ceil(this.aimConfig.predictionDurationSeconds / C),
+                  B = Math.ceil(
+                    (Number.isFinite(dur) && dur > 0
+                      ? dur
+                      : this.aimConfig.predictionDurationSeconds) / C,
+                  ),
                   Q = 0,
                   i = null,
                   E = (A) => {
@@ -53066,10 +53010,51 @@
                   (this.debugAimGroup.visible = !0));
               }
               updateAimVisualization() {
-                this.aimPreviewDirty &&
-                  ((this.aimPreviewDirty = !1),
-                  // No trajectory or impact hint: release feel must be learned.
-                  this.hideAimVisualization());
+                if (!this.aimPreviewDirty) return;
+                this.aimPreviewDirty = !1;
+                let g = this.lastGestureValues;
+                if ("dragging" !== this.phase || !g || !g.valid || !this.aimDotMesh)
+                  return void this.hideAimVisualization();
+                let sol = this.calculateLaunchSolution(g);
+                if (!sol) return void this.hideAimVisualization();
+                let cfg = this.aimConfig;
+                (this.previewOrigin || (this.previewOrigin = new mI()),
+                  this.previewPoint || (this.previewPoint = new mI()),
+                  this.previewOrigin.copy(this.heldCenterOfMass()),
+                  this.predictTrajectory(
+                    { origin: this.previewOrigin, velocity: sol.velocity },
+                    cfg.previewDurationSeconds,
+                  ));
+                let last = Math.max(0, this.predictionCount - 1);
+                if (last < 2) return void this.hideAimVisualization();
+                // Only the opening of the arc is drawn, fading out early:
+                // enough to read the angle, not enough to read the landing.
+                let count = this.aimConfig.trajectoryDotCount,
+                  span = last * ys(cfg.previewFraction, 0.05, 1),
+                  base =
+                    cfg.dotMinimumScale +
+                    (cfg.dotMaximumScale - cfg.dotMinimumScale) * sol.powerCurve;
+                for (let i = 0; i < count; i += 1) {
+                  let t = count > 1 ? i / (count - 1) : 0,
+                    fade =
+                      t <= cfg.previewFadeFraction
+                        ? 1
+                        : 1 -
+                          (t - cfg.previewFadeFraction) /
+                            Math.max(1e-4, 1 - cfg.previewFadeFraction);
+                  (this.getPredictionPoint(span * t, this.previewPoint),
+                    this.aimDotDummy.position.copy(this.previewPoint),
+                    this.aimDotDummy.scale.setScalar(
+                      base * Math.pow(Math.max(0, fade), 1.35),
+                    ),
+                    this.aimDotDummy.updateMatrix(),
+                    this.aimDotMesh.setMatrixAt(i, this.aimDotDummy.matrix));
+                }
+                ((this.aimDotMesh.instanceMatrix.needsUpdate = !0),
+                  (this.aimDotMesh.visible = !0),
+                  this.landingMarker && (this.landingMarker.visible = !1),
+                  this.aimArrow && (this.aimArrow.visible = !1),
+                  (this.predictionImpact = null));
               }
               hideAimVisualization() {
                 if (this.aimDotMesh) {
@@ -55401,17 +55386,17 @@
                                     children:
                                       "dragging" === D
                                         ? m.power < 0.12
-                                          ? "SWING, THEN PUSH"
+                                          ? "PULL BACK TO AIM"
                                           : "RELEASE TO FLIP"
                                         : CA
                                           ? "GRAB THE CAP"
-                                          : "HOLD CAP · PUSH & RELEASE",
+                                          : "HOLD CAP · PULL & RELEASE",
                                   }),
                                   (0, f.jsx)("small", {
                                     children:
                                       "dragging" === D
-                                        ? `${Math.round(100 * m.power)}% push · swing timing adds momentum`
-                                        : "Swing farther forward, backward or upward, then push and release",
+                                        ? `${Math.round(100 * m.power)}% draw · the dots only show the start of the arc`
+                                        : "Pull back and down from the cap, aim opposite the draw, then release",
                                   }),
                                 ],
                               }),
