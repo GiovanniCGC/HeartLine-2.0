@@ -47887,6 +47887,8 @@
               flightLinearDamping: 0.018,
               minimumRange: 1.35,
               maximumRange: 3.45,
+              reachAssistForwardSpeed: 0.6,
+              reachAssistMargin: 0.1,
               powerCurve: "smoothstep",
               predictionDurationSeconds: 2.5,
               predictionTimeStep: 1 / 60,
@@ -52574,25 +52576,53 @@
                   A.power <= 0
                 )
                   return null;
-                let I = ys(A.power, 0, 1),
+                let cfg = this.aimConfig,
+                  I = ys(A.power, 0, 1),
                   g = this.applyAimPowerCurve(I),
                   C = 0,
                   Q = this.aimForward.clone().normalize(),
-                  i =
-                    this.aimConfig.minimumRange +
-                    (this.aimConfig.maximumRange -
-                      this.aimConfig.minimumRange) *
-                      g,
-                  E = (this.aimConfig.launchElevationDegrees * Math.PI) / 180,
-                  o = ys(
+                  // Range the gesture alone asks for. This is what the spin is
+                  // read from, so the flip stays the player's, untouched by the
+                  // reach assist below.
+                  baseRange =
+                    cfg.minimumRange +
+                    (cfg.maximumRange - cfg.minimumRange) * g,
+                  i = baseRange,
+                  E = (cfg.launchElevationDegrees * Math.PI) / 180;
+                // Reach assist: a real forward swing always carries to the
+                // target platform, so a soft forward throw lands instead of
+                // dropping short. A dead release (no gesture) or a backward
+                // swing has no forward speed and does not qualify - those keep
+                // the plain power-to-range mapping and can fall short.
+                if (A.forwardSpeed > cfg.reachAssistForwardSpeed) {
+                  let seat = this.targetPlatform.mesh.position,
+                    rel = new mI(
+                      seat.x - this.aimOrigin.x,
+                      seat.y - this.aimOrigin.y,
+                      seat.z - this.aimOrigin.z,
+                    ),
+                    flat = rel
+                      .addScaledVector(this.aimWorldUp, -rel.dot(this.aimWorldUp))
+                      .length();
+                  // Solve the distance outright rather than only flooring it:
+                  // any forward throw lands on the platform, hard or soft, so
+                  // the swing is free to be the flip control and nothing else.
+                  i = flat + cfg.reachAssistMargin;
+                }
+                let baseSpeed = ys(
                     this.solveLaunchSpeed(
-                      i,
+                      baseRange,
                       Q,
                       E,
                       this.aimTargetHeightDelta,
                     ),
                     0,
-                    this.aimConfig.maximumLaunchSpeed,
+                    cfg.maximumLaunchSpeed,
+                  ),
+                  o = ys(
+                    this.solveLaunchSpeed(i, Q, E, this.aimTargetHeightDelta),
+                    0,
+                    cfg.maximumLaunchSpeed,
                   ),
                   e = o * Math.cos(E),
                   t = o * Math.sin(E),
@@ -52601,19 +52631,20 @@
                     .addScaledVector(this.aimWorldUp, t),
                   s = ys(
                     -this.heldPendulumPitchVelocity /
-                      this.aimConfig.maximumPendulumAngularSpeed,
+                      cfg.maximumPendulumAngularSpeed,
                     -1,
                     1,
                   ),
                   // The bottle lags a forward cap-whip, so negative pitch velocity
                   // is the intuitive boost; a late counter-swing removes spin.
+                  // Spin uses baseSpeed, not the reach-assisted speed, so lifting
+                  // the range to reach the platform never changes the flip.
                   D = ys(
-                    o *
-                      this.aimConfig.spinRadiansPerLaunchMeterPerSecond +
+                    baseSpeed * cfg.spinRadiansPerLaunchMeterPerSecond +
                       -this.heldPendulumPitchVelocity *
-                        this.aimConfig.pendulumSpinMomentumGain,
-                    this.aimConfig.minimumReleaseSpin,
-                    this.aimConfig.maximumReleaseSpin,
+                        cfg.pendulumSpinMomentumGain,
+                    cfg.minimumReleaseSpin,
+                    cfg.maximumReleaseSpin,
                   ),
                   n = Q.clone().cross(this.aimWorldUp).normalize(),
                   r = n.multiplyScalar(D);
