@@ -47890,7 +47890,7 @@
               powerCurve: "smoothstep",
               predictionDurationSeconds: 2.5,
               predictionTimeStep: 1 / 60,
-              trajectoryDotCount: 26,
+              trajectoryDotCount: 16,
               touchTargetExpansionPx: 30,
               capLocalY: 0.9,
               capTouchRadius: 0.17,
@@ -47903,28 +47903,33 @@
               pickupMaximumLift: 0.3,
               pickupMaximumForward: 0.24,
               pickupMaximumSide: 0,
-              pickupMaximumBack: 0.2,
-              pickupMaximumDown: 0.1,
+              pickupMaximumBack: 0.32,
+              pickupMaximumDown: 0.13,
               gripFollowRate: 38,
               pendulumLength: 0.82,
               pendulumDamping: 1.05,
               pendulumAccelerationResponse: 2.25,
-              maximumPendulumAngleDegrees: 34,
+              maximumPendulumAngleDegrees: 38,
               maximumPendulumAngularSpeed: 12.5,
               maximumGripAcceleration: 64,
               spinRadiansPerLaunchMeterPerSecond: 2.15,
               pendulumSpinMomentumGain: 0.75,
-              spinAssist: 0.92,
-              launchAssist: 0.6,
+              spinAssist: 0.95,
+              launchAssist: 0.95,
               minimumPullWorld: 0.18,
               maximumPullWorld: 1.15,
               minimumUpwardShare: 0.2,
               slingMinimumSpeed: 3.4,
               slingMaximumSpeed: 8.4,
               spinPerLaunchSpeed: 1.8,
-              previewFraction: 0.5,
-              previewFadeFraction: 0.55,
+              previewFraction: 0.58,
+              previewFadeFraction: 0.62,
               previewDurationSeconds: 1.2,
+              previewLeadFraction: 0.16,
+              drawLift: 0.26,
+              drawSetback: 0.34,
+              assistMinimumElevationDegrees: 33,
+              assistMaximumElevationDegrees: 60,
               minimumReleaseSpin: 5.8,
               maximumReleaseSpin: 18,
               predictionRadius: 0.22,
@@ -47932,8 +47937,8 @@
               rapierPositionDampingExponent: 1 / 8,
               arrowMinimumLength: 0.42,
               arrowMaximumLength: 0.92,
-              dotMinimumScale: 0.62,
-              dotMaximumScale: 1.08,
+              dotMinimumScale: 0.78,
+              dotMaximumScale: 1.05,
               existingLinearDrag: Object.freeze({
                 x: 0.018,
                 y: 0.008,
@@ -48295,11 +48300,11 @@
                     }),
                   )),
                   (this.aimDotMesh = new KB(
-                    new WB(0.052, 1),
+                    new WB(0.049, 1),
                     new KC({
-                      color: 16739179,
+                      color: 16775666,
                       transparent: !0,
-                      opacity: 0.96,
+                      opacity: 1,
                       depthWrite: !1,
                     }),
                     this.aimConfig.trajectoryDotCount,
@@ -52424,17 +52429,6 @@
                       .sub(this.heldGripOrigin),
                   pullU = plane.dot(this.aimWorldUp),
                   pullF = plane.dot(this.aimForward);
-                // The bottle visibly draws back with the finger.
-                this.heldGripTarget
-                  .copy(this.heldGripOrigin)
-                  .addScaledVector(
-                    this.aimWorldUp,
-                    ys(pullU, -cfg.pickupMaximumDown, cfg.pickupMaximumLift),
-                  )
-                  .addScaledVector(
-                    this.aimForward,
-                    ys(pullF, -cfg.pickupMaximumBack, cfg.pickupMaximumForward),
-                  );
                 // Release fires opposite the draw.
                 let aimU = -pullU,
                   aimF = -pullF,
@@ -52447,10 +52441,21 @@
                       ),
                     0,
                     1,
-                  ),
-                  // Pulling down and back throws up and forward. Pulling the
-                  // other way is not a throw.
-                  valid =
+                  );
+                // Nock the bottle rather than mirroring the finger: drawing
+                // slides it back and lifts it, so it is always clear of the
+                // platform when it goes dynamic. Dragging it down into the
+                // deck is what killed the throw.
+                this.heldGripTarget
+                  .copy(this.heldGripOrigin)
+                  .addScaledVector(
+                    this.aimWorldUp,
+                    cfg.pickupInitialLift + cfg.drawLift * power,
+                  )
+                  .addScaledVector(this.aimForward, -cfg.drawSetback * power);
+                // Pulling down and back throws up and forward. Pulling the
+                // other way is not a throw.
+                let valid =
                     draw > cfg.minimumPullWorld &&
                     aimU > cfg.minimumUpwardShare * draw,
                   h = {
@@ -52621,13 +52626,28 @@
                       seat.y - this.aimOrigin.y,
                       seat.z - this.aimOrigin.z,
                     ),
-                    reach = rel.clone().addScaledVector(up, -rel.dot(up)).length(),
-                    pitch = Math.atan2(
-                      vUp,
-                      Math.sqrt(Math.max(0, speed * speed - vUp * vUp)),
+                    flatRel = rel.clone().addScaledVector(up, -rel.dot(up)),
+                    reach = flatRel.length(),
+                    bearing =
+                      reach > 1e-4
+                        ? flatRel.clone().normalize()
+                        : this.aimForward.clone(),
+                    vFlat = Math.sqrt(Math.max(0, speed * speed - vUp * vUp)),
+                    lead =
+                      vFlat > 1e-4
+                        ? vel.clone().addScaledVector(up, -vUp).normalize()
+                        : bearing.clone(),
+                    pitch = Math.atan2(vUp, vFlat),
+                    // A draw that leaves too steep or too flat an arc cannot
+                    // reach the platform at any speed, so the elevation is
+                    // pulled into a band that can before the speed is solved.
+                    want = ys(
+                      pitch,
+                      (cfg.assistMinimumElevationDegrees * Math.PI) / 180,
+                      (cfg.assistMaximumElevationDegrees * Math.PI) / 180,
                     ),
-                    cw = Math.cos(pitch),
-                    span = reach * Math.tan(pitch) - drop,
+                    cw = Math.cos(want),
+                    span = reach * Math.tan(want) - drop,
                     need =
                       reach > 1e-3 && span > 1e-4 && cw > 1e-3
                         ? Math.sqrt((grav * reach * reach) / (2 * cw * cw * span))
@@ -52635,13 +52655,35 @@
                   (Number.isFinite(need) || (need = speed),
                     (need = ys(need, 0, cfg.maximumLaunchSpeed)),
                     (speed += (need - speed) * cfg.launchAssist),
-                    vel.copy(dir).multiplyScalar(speed),
-                    (vUp = vel.dot(up)));
+                    (pitch += (want - pitch) * cfg.launchAssist),
+                    lead.lerp(bearing, cfg.launchAssist),
+                    lead.lengthSq() < 1e-8 && lead.copy(bearing),
+                    lead.normalize(),
+                    vel
+                      .copy(lead)
+                      .multiplyScalar(speed * Math.cos(pitch))
+                      .addScaledVector(up, speed * Math.sin(pitch)),
+                    (speed = vel.length()),
+                    (vUp = vel.dot(up)),
+                    dir.copy(vel).normalize());
                 }
                 let flight =
                     (vUp + Math.sqrt(Math.max(0, vUp * vUp - 2 * grav * drop))) /
                     grav,
                   spin = -cfg.spinPerLaunchSpeed * speed;
+                // Time the rotation against the flight the bottle will really
+                // fly, drag included, not the drag-free estimate: a few percent
+                // of error there is a whole edge of the upright window.
+                (this.previewOrigin || (this.previewOrigin = new mI()),
+                  this.previewOrigin.copy(this.heldCenterOfMass()),
+                  this.predictTrajectory(
+                    { origin: this.previewOrigin, velocity: vel.clone() },
+                    cfg.predictionDurationSeconds,
+                  ),
+                  this.predictionImpact &&
+                    this.predictionCount > 1 &&
+                    (flight =
+                      (this.predictionCount - 1) * cfg.predictionTimeStep));
                 // Nudge the rotation toward a whole number of turns, but only
                 // part of the way: a badly judged arc still lands on its side.
                 if (cfg.spinAssist > 0 && flight > 0.08) {
@@ -53031,6 +53073,9 @@
                 // enough to read the angle, not enough to read the landing.
                 let count = this.aimConfig.trajectoryDotCount,
                   span = last * ys(cfg.previewFraction, 0.05, 1),
+                  // Start a little way along so the first dots clear the bottle
+                  // instead of sitting inside it.
+                  lead = span * ys(cfg.previewLeadFraction, 0, 0.4),
                   base =
                     cfg.dotMinimumScale +
                     (cfg.dotMaximumScale - cfg.dotMinimumScale) * sol.powerCurve;
@@ -53042,7 +53087,10 @@
                         : 1 -
                           (t - cfg.previewFadeFraction) /
                             Math.max(1e-4, 1 - cfg.previewFadeFraction);
-                  (this.getPredictionPoint(span * t, this.previewPoint),
+                  (this.getPredictionPoint(
+                    lead + (span - lead) * t,
+                    this.previewPoint,
+                  ),
                     this.aimDotDummy.position.copy(this.previewPoint),
                     this.aimDotDummy.scale.setScalar(
                       base * Math.pow(Math.max(0, fade), 1.35),
