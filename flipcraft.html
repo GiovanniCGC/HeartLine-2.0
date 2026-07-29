@@ -47917,8 +47917,8 @@
               spinRadiansPerLaunchMeterPerSecond: 2.05,
               pendulumSpinMomentumGain: 0.72,
               minimumReleaseSpin: 3.2,
-              maximumReleaseSpin: 12,
-              landingSpinAssist: 0.95,
+              maximumReleaseSpin: 14,
+              landingSpinAssist: 0.98,
               predictionRadius: 0.22,
               rapierPositionAccelerationFactor: 9 / 16,
               rapierPositionDampingExponent: 1 / 8,
@@ -52663,9 +52663,11 @@
                     (this.predictionCount - 1) * cfg.predictionTimeStep;
                   if (flight > 0.08) {
                     let pitch = this.heldPendulumPitch || 0,
-                      turns = (pitch + D * flight) / (2 * Math.PI),
-                      target = Math.max(0, Math.round(turns)),
-                      idealD = (2 * Math.PI * target - pitch) / flight;
+                      // Always exactly one flip. Rounding to the nearest whole
+                      // turn used to pick two on a hard swing, which is what
+                      // over-rotated; pinning the target makes a single clean
+                      // flip the easy outcome and over-spinning past it hard.
+                      idealD = (2 * Math.PI - pitch) / flight;
                     Number.isFinite(idealD) &&
                       ((D = ys(
                         D + (idealD - D) * cfg.landingSpinAssist,
