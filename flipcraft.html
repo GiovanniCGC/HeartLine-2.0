@@ -47918,6 +47918,7 @@
               pendulumSpinMomentumGain: 0.5,
               minimumReleaseSpin: 1.6,
               maximumReleaseSpin: 12,
+              landingSpinAssist: 0.7,
               predictionRadius: 0.22,
               rapierPositionAccelerationFactor: 9 / 16,
               rapierPositionDampingExponent: 1 / 8,
@@ -47944,9 +47945,9 @@
               minimumPostImpactAngularDamping: 20,
               maximumPostImpactAngularDamping: 28,
               postImpactLinearDamping: 4.7,
-              landingUprightCosine: Math.cos((23 * Math.PI) / 180),
-              landingMaximumLinearSpeed: 0.46,
-              landingMaximumAngularSpeed: 0.8,
+              landingUprightCosine: Math.cos((30 * Math.PI) / 180),
+              landingMaximumLinearSpeed: 0.55,
+              landingMaximumAngularSpeed: 1.0,
               landingSettleSeconds: 0.4,
               settleDecayMultiplier: 1.25,
               missMaximumLinearSpeed: 0.5,
@@ -52648,6 +52649,36 @@
                   ),
                   n = Q.clone().cross(this.aimWorldUp).normalize(),
                   r = n.multiplyScalar(D);
+                // Landing assist: settle the rotation on a whole number of
+                // turns over the real flight, so a well-judged throw comes
+                // down on its base. Only part of the way, so the flip stays
+                // the player's and a poorly judged throw still tips. Weight and
+                // flight are untouched - only the release spin is nudged.
+                if (cfg.landingSpinAssist > 0) {
+                  this.predictTrajectory({
+                    origin: this.aimOrigin.clone(),
+                    velocity: a.clone(),
+                  });
+                  let flight =
+                    (this.predictionCount - 1) * cfg.predictionTimeStep;
+                  if (flight > 0.08) {
+                    let pitch = this.heldPendulumPitch || 0,
+                      turns = (pitch + D * flight) / (2 * Math.PI),
+                      target = Math.max(0, Math.round(turns)),
+                      idealD = (2 * Math.PI * target - pitch) / flight;
+                    Number.isFinite(idealD) &&
+                      ((D = ys(
+                        D + (idealD - D) * cfg.landingSpinAssist,
+                        cfg.minimumReleaseSpin,
+                        cfg.maximumReleaseSpin,
+                      )),
+                      r
+                        .copy(Q)
+                        .cross(this.aimWorldUp)
+                        .normalize()
+                        .multiplyScalar(D));
+                  }
+                }
                 return Number.isFinite(a.x) &&
                   Number.isFinite(a.y) &&
                   Number.isFinite(a.z) &&
