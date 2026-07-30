@@ -450,13 +450,43 @@ L, R = fold(L), fold(R)
 
 
 # ----------------------------------------------------------------- master
-def soft_clip(x, drive=1.25):
-    return np.tanh(x * drive) / np.tanh(drive)
+# Gentlest limiting that still reaches the target loudness. Raising the
+# threshold means less gain reduction; lowering it allows a hotter master but
+# starts to squash the transients.
+LIMIT_THRESHOLD = 0.60
+
+
+def limiter(a, b, thresh, block=64, la_blocks=3, rel_ms=90.0):
+    """Channel-linked look-ahead peak limiter.
+
+    Rides the gain down just before each peak and lets it back up slowly.
+    Preferred over tanh waveshaping, which buys the same headroom but adds
+    harmonic distortion to every loud moment. Gain is computed per 64-sample
+    block and interpolated, which is well below the smoothing time constant.
+    """
+    env = np.maximum(np.abs(a), np.abs(b))
+    nb = len(env) // block
+    bm = env[: nb * block].reshape(nb, block).max(axis=1)
+    look = bm.copy()
+    for k in range(1, la_blocks + 1):
+        look[:-k] = np.maximum(look[:-k], bm[k:])
+    target = np.minimum(1.0, thresh / np.maximum(look, 1e-9))
+    coef = np.exp(-block / (rel_ms * 1e-3 * SR))
+    gain = np.empty_like(target)
+    cur = 1.0
+    for i in range(len(target)):
+        # instant attack (the look-ahead already saw the peak), slow release
+        cur = target[i] if target[i] < cur else target[i] + (cur - target[i]) * coef
+        gain[i] = cur
+    g = np.interp(np.arange(len(a)), (np.arange(nb) + 0.5) * block, gain,
+                  left=gain[0], right=gain[-1])
+    return a * g, b * g
 
 
 peak = max(np.max(np.abs(L)), np.max(np.abs(R)))
-L, R = L / peak * 0.92, R / peak * 0.92
-L, R = soft_clip(L, 1.20), soft_clip(R, 1.20)
+L, R = L / peak, R / peak
+L, R = limiter(L, R, LIMIT_THRESHOLD)
+
 
 # gentle high shelf for air
 def shelf(x, g=0.16):
@@ -476,10 +506,15 @@ for ch in (L, R):
     ch[:F] *= w
     ch[-F:] *= w[::-1]
 
-# 0.87, not 0.95: Opus rings on decode and overshoots the source peak by a few
-# percent. Leaving headroom here is what keeps the decoded file from clipping.
+# Lands integrated loudness on -12.1 LUFS, measured to match the track this
+# replaced so the in-game volume and the settings slider behave identically.
+# It also keeps the decoded peak near 0.935: Opus overshoots the source peak
+# on decode, and pushing this toward full scale makes the decode clip. The
+# overshoot is not proportional to level, so if you change the limiter or the
+# arrangement, re-measure both loudness and decoded peak rather than scaling.
+MASTER_CEILING = 0.8873
 peak = max(np.max(np.abs(L)), np.max(np.abs(R)))
-L, R = L / peak * 0.87, R / peak * 0.87
+L, R = L / peak * MASTER_CEILING, R / peak * MASTER_CEILING
 
 rms = np.sqrt(np.mean(L ** 2))
 print("loop length: %.3f s (%d bars @ %.0f BPM)" % (LOOP_LEN / SR, BARS, BPM))
