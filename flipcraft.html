@@ -48296,7 +48296,7 @@ var MeshoptDecoder = (function () {
                   (this.fpsFrames = 0),
                   (this.fpsTimer = 0),
                   (this.slowFrames = 0),
-                  (this.cameraPosition = new mI(3.7, 3.15, -6.7)),
+                  (this.cameraPosition = new mI(-3.7, 3.15, -6.7)),
                   (this.cameraLook = new mI(0, 0.5, 1.7)),
                   (this.cameraShake = 0),
                   (this.cameraShakeVisual = 0),
@@ -54357,7 +54357,9 @@ var MeshoptDecoder = (function () {
                   t = I.clone();
                 C && t.lerp(B, 0.08 * i);
                 let a = new mI(
-                    t.x + 3.35 + e,
+                    // Third person over the right shoulder so the run faces
+                    // the storefronts rather than the empty side of the street.
+                    t.x - 3.35 - e,
                     t.y + 2.9 + 0.45 * e,
                     t.z - 6.75 - e,
                   );
@@ -54365,7 +54367,7 @@ var MeshoptDecoder = (function () {
                   let A =
                       0.5 * (this.menuPreviewStart.x + this.menuPreviewEnd.x),
                     I = 0.5 * (this.menuPreviewStart.z + this.menuPreviewEnd.z);
-                  (a.set(A + 3.55, this.menuPreviewStart.y + 2.75, I - 6.55),
+                  (a.set(A - 3.55, this.menuPreviewStart.y + 2.75, I - 6.55),
                     o.set(A, this.menuPreviewStart.y + 0.15, I + 0.12));
                 }
                 let s = 1 - Math.exp(-(g ? 5.2 : C ? 3.5 : 4.4) * A),
