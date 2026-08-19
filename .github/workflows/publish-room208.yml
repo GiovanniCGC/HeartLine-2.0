@@ -1,0 +1,65 @@
+name: Publish Room208
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-room208.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download Room208 archive
+        run: |
+          python -m pip install --quiet gdown
+          gdown --fuzzy 'https://drive.google.com/file/d/1OU7Tcn-M3yUYl-G5R0SKuCyRBnbAjyad/view?usp=drive_link' -O /tmp/Room208.zip
+          test $(stat -c%s /tmp/Room208.zip) -gt 900000000
+
+      - name: Extract browser build
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/room208
+          mkdir -p /tmp/room208
+          unzip -q /tmp/Room208.zip -d /tmp/room208
+          ROOT=/tmp/room208/Room208
+          test -f "$ROOT/index.html"
+
+          rm -rf Room208
+          mkdir -p Room208/build
+          cp "$ROOT/index.html" Room208/
+          cp -a "$ROOT/css" Room208/
+          cp -a "$ROOT/js" Room208/
+          cp -a "$ROOT/audio" Room208/
+          cp -a "$ROOT/vendor" Room208/
+          cp "$ROOT/build/app-icon.png" Room208/build/
+          if [ -f "$ROOT/build/icon.ico" ]; then cp "$ROOT/build/icon.ico" Room208/build/; fi
+          touch Room208/.nojekyll
+
+          if grep -RniE 'Pocket[- ]Terraformer|pocket[- ]terraformer' Room208; then
+            echo 'Old project name found in Room208 tree.' >&2
+            exit 1
+          fi
+
+      - name: Commit Room208
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Room208
+          if ! git diff --cached --quiet; then
+            git commit -m 'Add Room208 browser game'
+            git push origin main
+          fi
