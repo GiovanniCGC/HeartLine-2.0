@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - .github/workflows/publish-room208.yml
-      - Room208/payload.bin
   workflow_dispatch:
 
 permissions:
@@ -30,41 +29,37 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Build fetch-free Room208 page
+      - name: Download verified standalone build
+        shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          import gzip, re
-          payload = Path('Room208/payload.bin')
-          if not payload.exists():
-              raise SystemExit('Room208/payload.bin is missing')
-          html = gzip.decompress(payload.read_bytes()).decode('utf-8')
-          if re.search(r'Pocket[- ]Terraformer|pocket[- ]terraformer', html):
-              raise SystemExit('Old Pocket Terraformer name found')
-          Path('Room208/index.html').write_text(html, encoding='utf-8')
-          print('Wrote Room208/index.html:', len(html), 'chars')
-          PY
+          python -m pip install --quiet gdown
+          gdown --fuzzy 'https://drive.google.com/file/d/1fbgA2azjMq1GSLcqFGgYu_rdqG9AN2Jy/view' -O /tmp/Room208.html
+          test $(stat -c%s /tmp/Room208.html) -gt 1200000
+          grep -q '<title>ROOM 208</title>' /tmp/Room208.html
+          if grep -qiE 'Pocket[- ]Terraformer|pocket[- ]terraformer' /tmp/Room208.html; then
+            echo 'Old project name found' >&2
+            exit 1
+          fi
 
-      - name: Commit generated page
+      - name: Install standalone build
         run: |
+          mkdir -p Room208
+          cp /tmp/Room208.html Room208/index.html
+          rm -f Room208/payload.bin Room208/payload.gz Room208/index2.html Room208/final-index.html Room208/fix-note.txt Room208/asset-fix-marker.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Room208/index.html
+          git add -A Room208
           if ! git diff --cached --quiet; then
-            git commit -m 'Make Room208 fully standalone'
+            git commit -m 'Install verified standalone Room208 build'
             git push origin main
           fi
 
       - name: Prepare Pages artifact
         run: |
           rm -rf /tmp/pages
-          mkdir -p /tmp/pages
-          cp -a . /tmp/pages/repo
+          mkdir -p /tmp/pages/repo
+          cp -a . /tmp/pages/repo/
           rm -rf /tmp/pages/repo/.git /tmp/pages/repo/.github
           touch /tmp/pages/repo/.nojekyll
 
