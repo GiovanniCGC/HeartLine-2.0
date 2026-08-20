@@ -1,10 +1,9 @@
 name: Publish Room208
 
 on:
-  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
     branches: [main]
-    paths:
-      - .github/workflows/publish-room208.yml
   workflow_dispatch:
 
 permissions:
@@ -18,6 +17,7 @@ concurrency:
 
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'room208-deploy-'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -27,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Download exact verified standalone build
@@ -56,7 +57,7 @@ jobs:
           git add -A Room208
           if ! git diff --cached --quiet; then
             git commit -m 'Install verified standalone Room208 build'
-            git push origin main
+            git push origin HEAD:main
           fi
 
       - name: Verify committed page is standalone
@@ -85,5 +86,3 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v4
-
-# room208-deploy-trigger-2026-08-20
