@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --quiet gdown
-          gdown --fuzzy 'https://drive.google.com/file/d/1fbgA2azjMq1GSLcqFGgYu_rdqG9AN2Jy/view?usp=sharing' -O /tmp/Room208.html
+          gdown '1fbgA2azjMq1GSLcqFGgYu_rdqG9AN2Jy' -O /tmp/Room208.html
           test "$(stat -c%s /tmp/Room208.html)" -eq 1272730
           echo '17f8efffa851be2111386bff440f14beee39a877d2b3d6135d38f07e8cf50b53  /tmp/Room208.html' | sha256sum -c -
           grep -qi '<title>ROOM 208</title>' /tmp/Room208.html
