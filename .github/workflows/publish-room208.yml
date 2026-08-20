@@ -1,23 +1,29 @@
 name: Publish Room208
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+  pull-requests: read
 
 concurrency:
-  group: room208-import
+  group: room208-publish
   cancel-in-progress: true
 
 jobs:
-  import:
+  publish:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'room208-deploy-'))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +52,7 @@ jobs:
           mkdir -p Room208
           cp /tmp/Room208.html Room208/index.html
           rm -rf Room208/data
-          rm -f Room208/payload.bin Room208/payload.gz Room208/index2.html Room208/final-index.html Room208/fix-note.txt Room208/asset-fix-marker.txt
+          rm -f Room208/payload.bin Room208/payload.gz Room208/index2.html Room208/final-index.html Room208/fix-note.txt Room208/asset-fix-marker.txt Room208/LIVE_VERIFIED.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A Room208
@@ -55,9 +61,42 @@ jobs:
             git push origin HEAD:main
           fi
 
-      - name: Verify installed page
+      - name: Verify installed source
         shell: bash
         run: |
           set -euo pipefail
           test "$(stat -c%s Room208/index.html)" -eq 1272730
           echo '17f8efffa851be2111386bff440f14beee39a877d2b3d6135d38f07e8cf50b53  Room208/index.html' | sha256sum -c -
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Verify live GitHub Pages game
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://giovannicgc.github.io/HeartLine-2.0/Room208/'
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsSL --retry 2 --connect-timeout 10 "$URL?verify=$GITHUB_RUN_ID-$i" -o /tmp/live.html; then
+              size=$(stat -c%s /tmp/live.html || echo 0)
+              if [ "$size" -gt 1200000 ] && grep -qi '<title>ROOM 208</title>' /tmp/live.html && ! grep -qiE 'Room 208 failed to load:|payload\.(gz|bin)|Pocket[- ]Terraformer' /tmp/live.html; then
+                ok=1
+                break
+              fi
+            fi
+            sleep 5
+          done
+          test "$ok" -eq 1
+          printf 'ROOM 208 live verified on GitHub Pages\nsource_sha256=17f8efffa851be2111386bff440f14beee39a877d2b3d6135d38f07e8cf50b53\nrun_id=%s\n' "$GITHUB_RUN_ID" > Room208/LIVE_VERIFIED.txt
+          git add Room208/LIVE_VERIFIED.txt
+          git commit -m 'Mark Room208 GitHub Pages live verification'
+          git push origin HEAD:main
