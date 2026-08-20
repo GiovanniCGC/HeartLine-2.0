@@ -8,21 +8,16 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
-  group: room208-pages
+  group: room208-import
   cancel-in-progress: true
 
 jobs:
-  publish:
+  import:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'room208-deploy-'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +39,7 @@ jobs:
             exit 1
           fi
 
-      - name: Install verified standalone build into GitHub
+      - name: Install verified standalone build into GitHub main
         shell: bash
         run: |
           set -euo pipefail
@@ -60,29 +55,9 @@ jobs:
             git push origin HEAD:main
           fi
 
-      - name: Verify committed page is standalone
+      - name: Verify installed page
         shell: bash
         run: |
           set -euo pipefail
           test "$(stat -c%s Room208/index.html)" -eq 1272730
           echo '17f8efffa851be2111386bff440f14beee39a877d2b3d6135d38f07e8cf50b53  Room208/index.html' | sha256sum -c -
-
-      - name: Prepare GitHub Pages artifact
-        run: |
-          rm -rf /tmp/pages
-          mkdir -p /tmp/pages/repo
-          cp -a . /tmp/pages/repo/
-          rm -rf /tmp/pages/repo/.git /tmp/pages/repo/.github
-          touch /tmp/pages/repo/.nojekyll
-
-      - uses: actions/configure-pages@v5
-        continue-on-error: true
-        with:
-          enablement: true
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: /tmp/pages/repo
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
