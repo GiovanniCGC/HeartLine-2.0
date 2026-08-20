@@ -3,6 +3,9 @@ name: Publish Room208
 on:
   push:
     branches: [main]
+    paths:
+      - .github/workflows/publish-room208.yml
+      - Room208/payload.bin
   workflow_dispatch:
 
 permissions:
@@ -17,7 +20,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -31,76 +34,39 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Download Room208 archive
-        run: |
-          python -m pip install --quiet gdown
-          gdown --fuzzy 'https://drive.google.com/file/d/1OU7Tcn-M3yUYl-G5R0SKuCyRBnbAjyad/view?usp=drive_link' -O /tmp/Room208.zip
-          ls -lh /tmp/Room208.zip
-          test $(stat -c%s /tmp/Room208.zip) -gt 900000000
-
-      - name: Build standalone Room208 page
+      - name: Build fetch-free Room208 page
         run: |
           set -euo pipefail
-          rm -rf /tmp/r208 /tmp/pages
-          mkdir -p /tmp/r208 /tmp/pages/Room208
-          unzip -q /tmp/Room208.zip -d /tmp/r208
-          ROOT=/tmp/r208/Room208
-          test -f "$ROOT/index.html"
-
-          ROOT="$ROOT" python - <<'PY'
+          python - <<'PY'
           from pathlib import Path
-          import os, re
-          root = Path(os.environ['ROOT'])
-          s = (root/'index.html').read_text(encoding='utf-8')
-
-          def link(m):
-              href=m.group(1)
-              rel=href.split('?',1)[0]
-              p=root/rel
-              if p.exists() and p.suffix.lower()=='.css':
-                  return '<style>\n'+p.read_text(encoding='utf-8')+'\n</style>'
-              if 'icon' in m.group(0).lower():
-                  return ''
-              return m.group(0)
-
-          s=re.sub(r'<link[^>]+href="([^\"]+)"[^>]*>', link, s)
-
-          def script(m):
-              src=m.group(1)
-              rel=src.split('?',1)[0]
-              p=root/rel
-              if not p.exists(): return m.group(0)
-              js=p.read_text(encoding='utf-8')
-              if rel.endswith('voice-assets.js'):
-                  js += '\nwindow.R208=window.R208||{}; if(window.R208.VoiceAssets){window.R208.VoiceAssets.get=function(){return null;};}\n'
-              return '<script>\n'+js+'\n</script>'
-
-          s=re.sub(r'<script[^>]+src="([^\"]+)"[^>]*>\s*</script>', script, s)
-          if re.search(r'Pocket[- ]Terraformer', s, re.I):
+          import gzip, re
+          payload = Path('Room208/payload.bin')
+          if not payload.exists():
+              raise SystemExit('Room208/payload.bin is missing')
+          html = gzip.decompress(payload.read_bytes()).decode('utf-8')
+          if re.search(r'Pocket[- ]Terraformer|pocket[- ]terraformer', html):
               raise SystemExit('Old Pocket Terraformer name found')
-          if re.search(r'(?:src|href)="[^\"]+', s):
-              raise SystemExit('External local asset reference remained')
-          out=Path('/tmp/pages/Room208/index.html')
-          out.write_text(s,encoding='utf-8')
-          print('Standalone bytes:', out.stat().st_size)
+          Path('Room208/index.html').write_text(html, encoding='utf-8')
+          print('Wrote Room208/index.html:', len(html), 'chars')
           PY
 
-          cp -a . /tmp/pages/repo
-          rm -rf /tmp/pages/repo/.git /tmp/pages/repo/.github /tmp/pages/repo/Room208
-          cp -a /tmp/pages/Room208 /tmp/pages/repo/Room208
-          touch /tmp/pages/repo/.nojekyll
-
-      - name: Commit standalone Room208 page
+      - name: Commit generated page
         run: |
-          rm -rf Room208
-          cp -a /tmp/pages/Room208 ./Room208
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Room208
+          git add Room208/index.html
           if ! git diff --cached --quiet; then
-            git commit -m 'Add standalone Room208 game'
+            git commit -m 'Make Room208 fully standalone'
             git push origin main
           fi
+
+      - name: Prepare Pages artifact
+        run: |
+          rm -rf /tmp/pages
+          mkdir -p /tmp/pages
+          cp -a . /tmp/pages/repo
+          rm -rf /tmp/pages/repo/.git /tmp/pages/repo/.github
+          touch /tmp/pages/repo/.nojekyll
 
       - uses: actions/configure-pages@v5
         continue-on-error: true
