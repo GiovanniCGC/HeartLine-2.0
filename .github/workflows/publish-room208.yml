@@ -23,6 +23,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Verify Room 208 source
+        run: |
+          set -euo pipefail
+          test -s Room208/index.html
+          grep -qi '<title>ROOM 208</title>' Room208/index.html
+          if grep -qiE 'Heartline 2\.0|Heartline|Pocket[ -]?Terraformer|Flipcraft' Room208/index.html; then
+            echo 'Old project branding found in Room208/index.html' >&2
+            exit 1
+          fi
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Prepare site
@@ -39,3 +48,19 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Verify live Room 208 page
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in $(seq 1 12); do
+            if curl -fsSL --retry 2 --connect-timeout 10 "${PAGE_URL}?verify=${GITHUB_RUN_ID}-${i}" -o /tmp/live.html; then
+              if [ "$(stat -c%s /tmp/live.html)" -gt 1200000 ] && grep -qi '<title>ROOM 208</title>' /tmp/live.html && ! grep -qiE 'Heartline 2\.0|Heartline|Pocket[ -]?Terraformer|Flipcraft|Room 208 failed to load:' /tmp/live.html; then
+                ok=1
+                break
+              fi
+            fi
+            sleep 5
+          done
+          test "$ok" -eq 1
