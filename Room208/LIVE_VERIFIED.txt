@@ -1,3 +1,5 @@
 ROOM 208 live verified on GitHub Pages
-source_sha256=17f8efffa851be2111386bff440f14beee39a877d2b3d6135d38f07e8cf50b53
-run_id=32370061234
+page_url=https://giovannicgc.github.io/HeartLine-2.0/
+run_id=32740592685
+verified_at=2026-08-24T14:45:03Z
+source_commit=7dc0c953c38aa1c012952a91641506adf8c720f6
